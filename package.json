@@ -1,0 +1,11 @@
+{
+  "name": "bethlehem-tools-for-realm",
+  "private": true,
+  "description": "Development commands only; manifest.json owns the extension release version.",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
