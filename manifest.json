@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Bethlehem Tools for Realm",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Build a custom query from a list of names and open unsaved results in Realm to review, edit, or save.",
   "permissions": [
     "activeTab",
@@ -18,7 +18,7 @@
       "32": "icons/icon-32.png"
     }
   },
-  "version_name": "0.2.4 — 2026-09-11",
+  "version_name": "0.2.5 — 2026-09-14",
   "side_panel": {
     "default_path": "panel.html"
   },
