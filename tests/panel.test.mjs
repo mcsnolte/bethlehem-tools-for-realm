@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {globals, grid, reportId} from './helpers.mjs';
+import {readFileSync} from 'node:fs';
+import {globals, query} from './helpers.mjs';
+import {openRealmResults} from '../bridge.mjs';
 
-// Minimal DOM surface for testing actual panel event handlers without a browser.
-// Browser rendering and Chrome permissions still need extension smoke testing.
+// Run actual panel event handlers with a minimal DOM and Chrome API.
 class Element {
   value = '';
   textContent = '';
@@ -15,32 +16,28 @@ class Element {
   listeners = new Map();
   classList = {toggle() {}};
   addEventListener(event, callback) { this.listeners.set(event, callback); }
-  setAttribute() {}
-  append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
   add(option) { this.children.push(option); }
 }
 
 let panelNumber = 0;
-async function panel(t, saveResponse) {
-  const elements = new Map();
+async function panel(t, response = async () => [{result: {ok: true}}], search = '?tab=123') {
+  const html = readFileSync(new URL('../panel.html', import.meta.url), 'utf8');
+  const elements = new Map([...html.matchAll(/id="([^"]+)"/g)].map(match => [match[1], new Element()]));
   const get = id => {
-    if (!elements.has(id)) elements.set(id, new Element());
+    assert.ok(elements.has(id), `Missing UI element: ${id}`);
     return elements.get(id);
   };
   get('names').value = 'Morgan Example';
-  get('report').value = 'Synthetic report';
   get('separator').value = 'auto';
   get('name-mode').value = 'split';
-  get('review').hidden = true;
-  get('result').hidden = true;
+  get('include-preferred').checked = /<input\b[^>]*id="include-preferred"[^>]*\bchecked\b/.test(html);
   const calls = [];
   globals(t, {
-    location: {search: '?tab=123'},
+    location: {search},
     document: {
       getElementById: get,
-      createElement: () => new Element(),
-      querySelector: () => get('file-label'),
+      querySelector: () => new Element(),
       querySelectorAll: () => [get('has-header'), get('back-menu')],
     },
     Option: class extends Element {
@@ -48,93 +45,123 @@ async function panel(t, saveResponse) {
     },
     chrome: {
       runtime: {getManifest: () => ({version_name: 'test'})},
-      scripting: {
-        executeScript: async ({args: [operation, payload]}) => {
-          calls.push({operation, payload});
-          if (operation === 'preview') return [{result: {ok: true, data: grid(payload)}}];
-          return saveResponse(calls);
-        },
-      },
+      scripting: {executeScript: async options => { calls.push(options); return response(); }},
     },
   });
   await import(`../panel.mjs?test=${++panelNumber}`);
-  await get('preview').onclick();
-  assert.equal(get('save').disabled, false);
-  return {get, calls};
+  return {get, calls, elements};
 }
 
-for (const message of ['That report name already exists. Choose another name.', 'Realm reported validation errors. Nothing was saved.']) {
-  test(`panel allows retry after ${message}`, async t => {
-    let attempt = 0;
-    const {get, calls} = await panel(t, () => [{result: ++attempt === 1
-      ? {ok: false, error: message}
-      : {ok: true, id: reportId}}]);
-    await get('save').onclick();
-    assert.equal(get('preview').disabled, false);
-    assert.equal(get('save').disabled, false);
-    assert.equal(get('status').textContent, message);
-    get('report').value = 'Corrected report';
-    await get('save').onclick();
-    assert.equal(get('result').hidden, false);
-    assert.ok(get('result').href.endsWith(reportId));
-    assert.equal(calls.filter(c => c.operation === 'save').length, 2);
-  });
-}
-
-for (const scenario of ['bridge uncertainty', 'transport rejection', 'missing response']) {
-  test(`panel blocks retry after ${scenario}`, async t => {
-    const {get, calls} = await panel(t, () => {
-      if (scenario === 'transport rejection') throw Error('Realm tab closed');
-      if (scenario === 'missing response') return [];
-      return [{result: {ok: false, uncertain: true, error: 'Save outcome uncertain.'}}];
-    });
-    await get('save').onclick();
-    assert.equal(get('save').disabled, true);
-    assert.equal(get('preview').disabled, true);
-    assert.match(get('status').textContent, /Check My Saved Reports/);
-    await get('save').onclick();
-    await get('preview').onclick();
-    assert.equal(calls.filter(c => c.operation === 'save').length, 1);
-  });
-}
-
-test('malformed replacement file clears the previous review before parsing', async t => {
-  const {get, calls} = await panel(t, () => { throw Error('Must not save'); });
-  get('file').files = [{name: 'bad.csv', size: 30, text: async () => 'Name\n"unclosed'}];
-  await get('file').onchange();
-  assert.equal(get('review').hidden, true);
-  assert.equal(get('save').disabled, true);
-  assert.match(get('status').textContent, /unclosed/);
-  await get('save').onclick();
-  assert.equal(calls.some(c => c.operation === 'save'), false);
+test('one click hands the original name query to Realm with no review or save UI', async t => {
+  const {get, calls, elements} = await panel(t);
+  await get('open-results').onclick();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].func, openRealmResults);
+  assert.deepEqual(calls[0].target, {tabId: 123});
+  assert.deepEqual(calls[0].args, [query()]);
+  for (const id of ['review', 'rows', 'save', 'report', 'preview']) assert.equal(elements.has(id), false);
+  assert.equal(get('open-results').disabled, false);
+  assert.match(get('status').textContent, /Results requested/);
 });
 
-test('file read blocks actions and invalidates the old selection immediately', async t => {
-  const {get, calls} = await panel(t, () => { throw Error('Must not save'); });
+test('header mapping sends only mapped names', async t => {
+  const {get, calls} = await panel(t);
+  get('names').value = 'First,Last,Email\nMorgan,Example,fictional@example.invalid';
+  get('has-header').checked = true;
+  get('map-given').value = '0';
+  get('map-family').value = '1';
+  await get('open-results').onclick();
+  assert.deepEqual(calls[0].args, [query()]);
+});
+
+test('invalid input never calls Realm', async t => {
+  const {get, calls} = await panel(t);
+  get('names').value = '';
+  await get('open-results').onclick();
+  assert.equal(calls.length, 0);
+  assert.match(get('status').textContent, /at least one name/);
+});
+
+for (const scenario of ['validation error', 'transport failure', 'missing response']) {
+  test(`${scenario} leaves the panel usable for retry`, async t => {
+    let attempt = 0;
+    const {get, calls} = await panel(t, async () => {
+      if (++attempt > 1) return [{result: {ok: true}}];
+      if (scenario === 'transport failure') throw Error('Tab unavailable');
+      if (scenario === 'missing response') return [];
+      return [{result: {ok: false, error: 'Validation failed'}}];
+    });
+    await get('open-results').onclick();
+    assert.equal(get('open-results').disabled, false);
+    await get('open-results').onclick();
+    assert.equal(calls.length, 2);
+  });
+}
+
+test('no Realm tab prevents submission', async t => {
+  const {get, calls} = await panel(t, undefined, '');
+  assert.equal(get('open-results').disabled, true);
+  await get('open-results').onclick();
+  assert.equal(calls.length, 0);
+});
+
+test('busy handoff prevents duplicate clicks', async t => {
+  let finish;
+  const {get, calls} = await panel(t, () => new Promise(resolve => { finish = resolve; }));
+  const opening = get('open-results').onclick();
+  assert.equal(get('names').disabled, true);
+  assert.equal(get('include-preferred').disabled, true);
+  assert.equal(get('open-results').disabled, true);
+  await get('open-results').onclick();
+  assert.equal(calls.length, 1);
+  finish([{result: {ok: true}}]);
+  await opening;
+  assert.equal(get('names').disabled, false);
+  assert.equal(get('include-preferred').disabled, false);
+});
+
+test('file read blocks submission until the new contents are ready', async t => {
+  const {get, calls} = await panel(t);
   let finishRead;
   get('file').files = [{name: 'names.txt', size: 30, text: () => new Promise(resolve => { finishRead = resolve; })}];
   const reading = get('file').onchange();
-  assert.equal(get('review').hidden, true);
-  assert.equal(get('save').disabled, true);
-  assert.equal(get('preview').disabled, true);
-  assert.equal(get('names').disabled, true);
-  await get('preview').onclick();
-  assert.equal(calls.length, 1);
-  finishRead('Taylor Sample');
+  assert.equal(get('names').value, '');
+  assert.equal(get('open-results').disabled, true);
+  await get('open-results').onclick();
+  assert.equal(calls.length, 0);
+  finishRead('Morgan Example');
   await reading;
-  assert.equal(get('names').value, 'Taylor Sample');
-  assert.equal(get('preview').disabled, false);
-  assert.equal(get('save').disabled, true);
+  await get('open-results').onclick();
+  assert.deepEqual(calls[0].args, [query()]);
 });
 
 for (const scenario of ['read error', 'oversized file']) {
-  test(`${scenario} invalidates the previous review`, async t => {
-    const {get} = await panel(t, () => { throw Error('Must not save'); });
+  test(`${scenario} cannot submit the previous list`, async t => {
+    const {get, calls} = await panel(t);
     get('file').files = [{name: 'names.csv', size: scenario === 'oversized file' ? 100001 : 10,
       text: async () => { throw Error('Unable to read file'); }}];
     await get('file').onchange();
-    assert.equal(get('review').hidden, true);
-    assert.equal(get('save').disabled, true);
-    assert.equal(get('preview').disabled, false);
+    await get('open-results').onclick();
+    assert.equal(calls.length, 0);
+  });
+}
+
+for (const mapped of [false, true]) {
+  test(`preferred-name toggle controls ${mapped ? 'mapped' : 'plain'} query filters`, async t => {
+    const {get, calls} = await panel(t);
+    assert.equal(get('include-preferred').checked, true);
+    if (mapped) {
+      get('names').value = 'First,Last\nMorgan,Example';
+      get('has-header').checked = true;
+      get('map-given').value = '0';
+      get('map-family').value = '1';
+    }
+    get('include-preferred').checked = false;
+    await get('open-results').onclick();
+    assert.deepEqual(calls[0].args[0].Query.map(group => group.map(c => c.Name)), [['LastName', 'FirstName']]);
+    assert.deepEqual(calls[0].args[0].DisplayColumns, ['LastName0', 'FirstName0']);
+    get('include-preferred').checked = true;
+    await get('open-results').onclick();
+    assert.deepEqual(calls[1].args, [query()]);
   });
 }

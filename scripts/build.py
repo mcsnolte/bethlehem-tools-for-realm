@@ -11,7 +11,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 FILES = ['manifest.json', 'background.js', 'panel.html', 'panel.css', 'panel.mjs',
-         'core.mjs', 'bridge.mjs', 'import.mjs', 'windows.mjs',
+         'core.mjs', 'bridge.mjs', 'import.mjs',
          'icons/icon-16.png', 'icons/icon-32.png', 'icons/icon-48.png', 'icons/icon-128.png']
 
 

@@ -1,10 +1,10 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Bethlehem · Realm tools</title><link rel="stylesheet" href="panel.css"></head><body>
 <header class="app-header"><strong>Bethlehem tools</strong><span class="eyebrow">FOR REALM <span id="build-version"></span></span></header><main>
 <section id="tool-menu"><h1>What would you like to do?</h1><p class="hint">Tools for your everyday work in Realm.</p><nav aria-label="Tools">
-<button id="open-names" class="tool-card"><strong>Query from a name list</strong><span>Import names, review people, and save a custom query.</span><span class="card-action">Open tool →</span></button>
+<button id="open-names" class="tool-card"><strong>Query from a name list</strong><span>Import names and open the results in Realm.</span><span class="card-action">Open tool →</span></button>
 <button class="tool-card" disabled><strong>Group bulk import</strong><span>Add people to groups from a file.</span><span class="coming">Coming soon</span></button>
 <button class="tool-card" disabled><strong>Volunteer bulk import</strong><span>Bring volunteer lists into Realm.</span><span class="coming">Coming soon</span></button></nav></section>
-<section id="name-tool" hidden><button id="back-menu" class="back">← All tools</button><h1>Query from a name list</h1><p class="hint">Find each person, review the matches, then save a new report.</p>
+<section id="name-tool" hidden><button id="back-menu" class="back">← All tools</button><h1>Query from a name list</h1><p class="hint">Build a query from your names, then review, edit, or save it in Realm.</p>
 <label for="names">People to include</label><p class="hint">Paste names or load a CSV, TSV, or text file. Up to 50 distinct names per query.</p><textarea id="names" rows="6" placeholder="Morgan Example&#10;Taylor Sample&#10;Jordan Placeholder"></textarea>
 <div class="tools"><label class="file" tabindex="0">Load file<input type="file" id="file" accept=".txt,.tsv,.csv"></label></div>
 <label class="check-label"><input type="checkbox" id="has-header"> First row contains column headers</label>
@@ -13,8 +13,9 @@
 <label for="name-mode">Name format</label><select id="name-mode"><option value="split">Separate first and last names</option><option value="full">One full-name column</option></select>
 <div id="split-fields"><label for="map-given">First or preferred name</label><select id="map-given"></select><label for="map-family">Last name</label><select id="map-family"></select></div>
 <div id="full-fields" hidden><label for="map-full">Full name</label><select id="map-full"></select></div><p id="mapping-preview" class="hint" aria-live="polite"></p></section>
-<p class="hint">Matches first or preferred names plus surname. Inactive and deceased profiles are excluded.</p>
-<button id="preview">Find people</button><p id="status" role="status" aria-live="polite">Open Realm in Chrome, then click the extension’s icon.</p>
-<section id="review" hidden><h2>Review matches</h2><p class="hint">Check the people to include. Open a profile to distinguish people with the same name.</p><p id="selection-count" aria-live="polite"></p><div class="table-wrap"><table><thead><tr><th>Include</th><th>Person</th><th>Match details</th></tr></thead><tbody id="rows"></tbody></table></div><label for="report">New report name</label><input id="report" type="text" maxlength="150" placeholder="Name-list test"><button id="save" disabled>Save new query</button><a id="result" hidden target="_blank" rel="noopener">Open saved report in Realm →</a></section></section>
+<label class="check-label"><input type="checkbox" id="include-preferred" checked aria-describedby="matching-hint"> Also match preferred names</label>
+<p class="hint" id="matching-hint">Matches first name and surname. When enabled, also matches preferred name and surname. Inactive and deceased profiles are excluded.</p>
+<button id="open-results">Open results in Realm</button><p id="status" role="status" aria-live="polite">Open Realm in Chrome, then click the extension’s icon.</p>
+</section>
 <footer>Names are sent only to Bethlehem’s Realm site. This extension does not store your list or login credentials. Unofficial tool; not affiliated with ACS Technologies.</footer>
 </main><script type="module" src="panel.mjs"></script></body></html>

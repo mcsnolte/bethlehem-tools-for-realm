@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Bethlehem Tools for Realm",
   "version": "0.2.4",
-  "description": "Build a Realm custom query from a list of names, review matches, and save a new report.",
+  "description": "Build a custom query from a list of names and open unsaved results in Realm to review, edit, or save.",
   "permissions": [
     "activeTab",
     "scripting",

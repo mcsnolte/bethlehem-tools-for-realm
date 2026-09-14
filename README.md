@@ -1,6 +1,6 @@
 # Bethlehem Tools for Realm
 
-Chrome extension for creating a Realm custom query from a reviewed list of names. Runs in Chrome's side panel using the user's existing Bethlehem Realm session. Includes CSV/TSV header mapping and profile selection. Group and volunteer tools are inactive placeholders.
+Chrome extension for building a custom query from a list of names and opening unsaved results in Realm. Runs in Chrome's side panel using the user's existing Bethlehem Realm session. Includes CSV/TSV header mapping; reviewing people, editing, saving, and other actions happen on Realm's results page. Group and volunteer tools are inactive placeholders.
 
 ## Distribution and use
 
@@ -9,13 +9,12 @@ Chrome Web Store submission is complete and approved for **unlisted** distributi
 1. Sign in to Bethlehem Realm and open Custom Query or My Saved Reports.
 2. Click the extension icon and choose **Query from a name list**. Keep the signed-in Realm tab open.
 3. Paste names or load a CSV, TSV, or text file. For files with headers, check **First row contains column headers** and select the name columns. CSV files default to header mode.
-4. Click **Find people**, review the profiles, and check those to include. Profile links open in a separate window to help distinguish people with the same name.
-5. Enter a unique report name and click **Save new query**. The extension verifies the checked profile IDs before saving.
-6. Open the saved report in Realm and verify its results.
+4. Leave **Also match preferred names** enabled to match first or preferred names, or turn it off to match first names only. Click **Open results in Realm**. The signed-in Realm tab navigates to the unsaved query's results page.
+5. Review the people and use Realm's own controls to edit the query, save it if desired, or perform other actions.
 
 Without headers, enter one name per line as `Morgan Example`, `Example, Morgan`, or two tab-separated columns (given name, surname). Use `van Example, Morgan Lee` for compound names. Header-mapped imports support separate first/preferred and last-name columns, or one full-name column with exactly one name per cell. Excel workbook files are not supported.
 
-If Realm rejects a report name or validation check before creation, correct the issue and retry. If the save outcome is uncertain, check My Saved Reports before reopening the extension and trying again; the report may already exist. Saves are never retried automatically.
+The extension validates the query and submits Realm's unsaved-query form in the current Realm tab. It does not fetch profiles into the panel or create a saved report. Results may include multiple people with the same name; review them in Realm before taking further actions. If validation fails, correct the input or sign in again and retry.
 
 ## Repository contents
 
@@ -29,7 +28,7 @@ From the repository root, use GNU Make with Node.js 20+ and Python 3.10+:
 
 ```sh
 make                       # Show available commands
-make test                 # Run all tests and build the current version
+make test                  # Run all tests and build the current version
 make release               # Run all tests, bump patch, and build the release ZIP
 make release BUMP=minor     # Use instead for a feature release
 make release BUMP=major     # Use instead for a breaking release
@@ -57,7 +56,7 @@ py -3 scripts/build.py
 py -3 scripts/build.py --bump patch
 ```
 
-Run only ONE bump command per release. `--bump patch` advances 0.2.3 to 0.2.4, `minor` to 0.3.0, and `major` to 1.0.0. A version change stamps today's local date into `version_name`, which the UI reads automatically. A plain build preserves both version and date. Commit the updated manifest with the change.
+Run only ONE bump command per release. `--bump patch` advances 0.2.4 to 0.2.5, `minor` to 0.3.0, and `major` to 1.0.0. A version change stamps today's local date into `version_name`, which the UI reads automatically. A plain build preserves both version and date. Commit the updated manifest with the change.
 
 Build outputs:
 
@@ -79,7 +78,7 @@ node --test
 python3 -m unittest discover -s tests -p "*_test.py"
 ```
 
-These portable tests use fictional names and synthetic response data. They cover CSV parsing, header mapping, limits, query construction, identity selection, request sequencing, pagination, session failures, save outcomes, and panel state during failed saves and file imports. Panel tests run the actual event handlers against a minimal DOM and mocked Chrome API. Packaging tests use disposable repository copies and verify archive contents, version bumps, and failed-build behavior.
+These portable tests use fictional names and synthetic response data. They cover CSV parsing, header mapping, limits, query construction, validation, session failures, native results-form submission, and panel state during navigation and file imports. Panel tests run the actual event handlers against a minimal DOM and mocked Chrome API. Packaging tests use disposable repository copies and verify archive contents, version bumps, and failed-build behavior.
 
 GitHub Actions runs the JavaScript tests, packaging tests, and a plain build on Linux and Windows. No dependency installation is required. These checks do not replace live Realm testing or browser UI checks.
 
@@ -93,4 +92,4 @@ GitHub Actions runs the JavaScript tests, packaging tests, and a plain build on 
 
 ## Current limits
 
-Bethlehem site only. Header-mapped imports support up to 50 distinct names; plain name lists support up to 50 nonblank lines. Same-name profile exclusion uses a guarded, not yet fully verified non-null Realm exclusion format: saving is blocked unless a preview returns exactly the checked IDs. Queries remain name-based, so future profiles can affect results. Live tests across staff accounts and Windows remain important. See PRIVACY.md for data handling. Store submission and unlisted approval are complete; live verification of specific Realm behaviors remains a separate release check.
+Bethlehem site only. Header-mapped imports support up to 50 distinct names; plain name lists support up to 50 nonblank lines. Matching uses first name plus surname, with optional preferred-name matching enabled by default, and excludes inactive and deceased profiles. Review same-name matches using Realm's controls. Queries remain name-based, so future profiles can affect results. The native results-page handoff has been live-tested in Realm. See PRIVACY.md for data handling. The existing store listing is approved for unlisted distribution; release updates follow the checklist above.

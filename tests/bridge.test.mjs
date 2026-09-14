@@ -1,24 +1,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {realmRequest} from '../bridge.mjs';
-import {globals, grid, query, reportId} from './helpers.mjs';
+import {openRealmResults} from '../bridge.mjs';
+import {globals, query} from './helpers.mjs';
 
-const json = data => new Response(JSON.stringify(data), {
-  headers: {'content-type': 'application/json'},
-});
-const html = () => new Response('<html></html>', {
-  headers: {'content-type': 'text/html'},
-});
+const json = data => new Response(JSON.stringify(data), {headers: {'content-type': 'application/json'}});
+const html = () => new Response('<html></html>', {headers: {'content-type': 'text/html'}});
 
-function realm(t, replies, {token = 'synthetic-token', refreshed = 'fresh-token'} = {}) {
+function realm(t, replies, {token = 'synthetic-token', fallback = 'fresh-token', submitError = false} = {}) {
   const calls = [];
+  const forms = [];
   globals(t, {
     location: {origin: 'https://onrealm.org', pathname: '/BethlehemWELS/Queries/Saved'},
-    document: {querySelector: () => token ? {value: token} : null},
+    document: {
+      querySelector: () => token ? {value: token} : null,
+      body: {append: form => { form.connected = true; forms.push(form); }},
+      createElement: tag => tag === 'form' ? {
+        children: [],
+        append(input) { this.children.push(input); },
+        submit() {
+          assert.equal(this.connected, true);
+          if (submitError) throw Error('Submission failed');
+          this.submitted = true;
+        },
+        remove() { this.connected = false; },
+      } : {},
+    },
     DOMParser: class {
-      parseFromString() {
-        return {querySelector: () => refreshed ? {value: refreshed} : null};
-      }
+      parseFromString() { return {querySelector: () => fallback ? {value: fallback} : null}; }
     },
     fetch: async (url, options) => {
       calls.push({endpoint: url.split('/').at(-1), ...options});
@@ -28,111 +36,72 @@ function realm(t, replies, {token = 'synthetic-token', refreshed = 'fresh-token'
       return reply;
     },
   });
-  return calls;
+  return {calls, forms};
 }
 
-const payload = () => ({Name: 'Synthetic report', Query: query(), Tags: []});
-
-test('HTTP failures retain the endpoint and numeric status', async t => {
-  realm(t, [new Response('', {status: 403})]);
-  assert.deepEqual(await realmRequest('save', payload()), {
-    ok: false, error: 'QueryNameInUse returned HTTP 403.',
+test('valid query navigates through an unsaved native form, without fetching profiles or saving', async t => {
+  const {calls, forms} = realm(t, [json([])]);
+  assert.deepEqual(await openRealmResults(query()), {ok: true});
+  assert.deepEqual(calls.map(c => c.endpoint), ['ValidateQuery']);
+  assert.deepEqual(JSON.parse(calls[0].body.get('args')), query());
+  assert.equal(forms.length, 1);
+  const form = forms[0];
+  assert.equal(form.action, 'https://onrealm.org/BethlehemWELS/Queries/Results');
+  assert.equal(form.method, 'POST');
+  assert.equal(form.target, '_self');
+  assert.equal(form.acceptCharset, 'UTF-8');
+  assert.equal(form.submitted, true);
+  assert.equal(form.connected, true);
+  assert.ok(form.children.every(input => input.type === 'hidden'));
+  assert.deepEqual(Object.fromEntries(form.children.map(input => [input.name, input.value])), {
+    'query-id': '', 'query-type': '', 'query-args': JSON.stringify(query()),
+    'query-name': '', 'query-description': '', 'query-initial-data': '',
+    'query-selected-tags': '[]', __RequestVerificationToken: 'synthetic-token',
   });
 });
 
-test('duplicate names stop before validation or creation and remain recoverable', async t => {
-  const calls = realm(t, [json(true)]);
-  const result = await realmRequest('save', payload());
-  assert.equal(result.ok, false);
-  assert.match(result.error, /already exists/);
-  assert.equal(result.uncertain, undefined);
-  assert.deepEqual(calls.map(c => c.endpoint), ['QueryNameInUse']);
+test('fallback session token is used for validation and navigation', async t => {
+  const {calls, forms} = realm(t, [html(), json([])], {token: null});
+  assert.deepEqual(await openRealmResults(query()), {ok: true});
+  assert.deepEqual(calls.map(c => c.endpoint), ['Saved', 'ValidateQuery']);
+  assert.equal(calls[0].redirect, 'error');
+  assert.equal(calls[1].body.get('__RequestVerificationToken'), 'fresh-token');
+  assert.equal(forms[0].children.find(input => input.name === '__RequestVerificationToken').value, 'fresh-token');
 });
 
-test('validation rejection stops before creation and remains recoverable', async t => {
-  const calls = realm(t, [json(false), json(['Invalid query'])]);
-  const result = await realmRequest('save', payload());
-  assert.equal(result.ok, false);
-  assert.match(result.error, /validation errors/);
-  assert.equal(result.uncertain, undefined);
-  assert.deepEqual(calls.map(c => c.endpoint), ['QueryNameInUse', 'ValidateQuery']);
-});
-
-test('successful save validates first and returns the report ID', async t => {
-  const calls = realm(t, [json(false), json([]), json(reportId)]);
-  assert.deepEqual(await realmRequest('save', payload()), {ok: true, id: reportId});
-  assert.deepEqual(calls.map(c => c.endpoint), ['QueryNameInUse', 'ValidateQuery', 'AddSavedQuery']);
-  assert.deepEqual(JSON.parse(calls[2].body.get('args')), payload());
-  assert.equal(calls[2].body.get('__RequestVerificationToken'), 'synthetic-token');
-});
-
-for (const [label, reply] of [
-  ['network failure', () => new Error('connection lost')],
-  ['unrecognized response', () => json({unexpected: true})],
+for (const [label, reply, pattern] of [
+  ['HTTP failure', () => new Response('', {status: 403}), /ValidateQuery returned HTTP 403/],
+  ['validation rejection', () => json(['invalid']), /validation errors/],
+  ['unfamiliar validation response', () => json({}), /validation errors/],
+  ['expired session', html, /session may have expired/],
+  ['network failure', () => new Error('connection lost'), /connection lost/],
 ]) {
-  test(`creation ${label} is uncertain and is never retried`, async t => {
-    const calls = realm(t, [json(false), json([]), reply()]);
-    const result = await realmRequest('save', payload());
+  test(`${label} stops before navigation`, async t => {
+    const {forms} = realm(t, [reply()]);
+    const result = await openRealmResults(query());
     assert.equal(result.ok, false);
-    assert.equal(result.uncertain, true);
-    assert.equal(calls.filter(c => c.endpoint === 'AddSavedQuery').length, 1);
+    assert.match(result.error, pattern);
+    assert.equal(forms.length, 0);
   });
 }
 
-test('expired session returning HTML is a recoverable preflight failure', async t => {
-  realm(t, [html()]);
-  const result = await realmRequest('save', payload());
-  assert.match(result.error, /session may have expired/);
-  assert.equal(result.uncertain, undefined);
+test('missing token stops before validation or navigation', async t => {
+  const {calls, forms} = realm(t, [html()], {token: null, fallback: null});
+  assert.match((await openRealmResults(query())).error, /session token was not found/);
+  assert.equal(calls.length, 1);
+  assert.equal(forms.length, 0);
 });
 
-test('missing session token stops before any POST', async t => {
-  const response = html();
-  Object.defineProperty(response, 'url', {value: 'https://onrealm.org/BethlehemWELS/Queries/Saved'});
-  const calls = realm(t, [response], {token: null, refreshed: null});
-  const result = await realmRequest('preview', query());
-  assert.equal(result.ok, false);
-  assert.match(result.error, /session token was not found/);
-  assert.deepEqual(calls.map(c => c.endpoint), ['Saved']);
-  assert.equal(calls[0].method, undefined);
+test('wrong Realm site is rejected before any request', async t => {
+  const {calls, forms} = realm(t, []);
+  location.pathname = '/AnotherChurch/Queries/Saved';
+  assert.equal((await openRealmResults(query())).ok, false);
+  assert.equal(calls.length, 0);
+  assert.equal(forms.length, 0);
 });
 
-test('preview initializes results, refreshes token, pages, and strips contact columns', async t => {
-  const first = grid(query(), ['one']);
-  first.HasMore = true;
-  const second = grid(query(), ['two']);
-  second.TotalCount = 2;
-  for (const page of [first, second]) {
-    page.Settings.Columns.push({Name: 'ContactInfo_Email'});
-    page.Items[0].push('fictional@example.invalid');
-  }
-  const calls = realm(t, [json([]), html(), json(first), json(second)]);
-  const result = await realmRequest('preview', query());
-  assert.equal(result.ok, true);
-  assert.equal(result.data.Items.length, 2);
-  assert.equal(result.data.TotalCount, 2);
-  assert.equal(result.data.HasMore, false);
-  assert.equal(result.data.Settings.Columns.length, 5);
-  assert.equal(JSON.stringify(result).includes('fictional@example.invalid'), false);
-  assert.deepEqual(calls.map(c => c.endpoint), ['ValidateQuery', 'Results', 'GetResultsGrid', 'GetResultsGrid']);
-  assert.equal(calls[1].body.get('query-id'), '');
-  assert.deepEqual(calls.slice(2).map(c => c.body.get('page')), ['0', '1']);
-  assert.equal(calls[2].body.get('__RequestVerificationToken'), 'fresh-token');
+test('submission failure cleans up the temporary form', async t => {
+  const {forms} = realm(t, [json([])], {submitError: true});
+  assert.match((await openRealmResults(query())).error, /Submission failed/);
+  assert.equal(forms[0].connected, false);
 });
-
-for (const scenario of ['repeated', 'empty', 'changed query', 'changed columns']) {
-  test(`preview rejects a ${scenario} subsequent page`, async t => {
-    const first = grid();
-    first.HasMore = true;
-    first.TotalCount = 2;
-    const next = grid(query(), scenario === 'repeated' ? ['one'] : scenario === 'empty' ? [] : ['two']);
-    next.TotalCount = 2;
-    if (scenario === 'changed query') next.Settings.Query.Query = [];
-    if (scenario === 'changed columns') next.Settings.Columns[0].Name = 'DifferentId';
-    const calls = realm(t, [json([]), html(), json(first), json(next)]);
-    const result = await realmRequest('preview', query());
-    assert.equal(result.ok, false);
-    assert.equal(calls.length, 4);
-    assert.equal(calls.some(c => c.endpoint === 'AddSavedQuery'), false);
-  });
-}
