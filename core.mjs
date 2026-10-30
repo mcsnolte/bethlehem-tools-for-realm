@@ -68,3 +68,21 @@ export function buildQuery(people, {includePreferredName = true} = {}) {
     CanViewStaffInfo: false,
   };
 }
+
+export function buildFieldQuery(groups, {includePreferredName = true} = {}) {
+  if (!groups.length || groups.some(group => !group.length)) throw Error('Choose at least one condition per row.');
+  groups = groups.flatMap(group => includePreferredName && group.some(c => c.fullName)
+    ? [group, group.map(c => c.fullName ? {...c, Name: 'PreferredName'} : c)] : [group]);
+  const query = buildQuery([]);
+  const counts = {};
+  let vueId = 0;
+  query.Query = groups.map(group => group.map(({Name, value}) => {
+    const index = counts[Name] || 0;
+    counts[Name] = index + 1;
+    return {Message: '', SubQuery: [], Name, Operator: 0, Values: [value], Unit: null,
+      IgnoreYear: false, Id: Name + index, vueId: ++vueId};
+  }));
+  query.DisplayColumns = [...new Set(groups.flat().map(c => c.Name))].map(name => name + '0');
+  query.OrderBy = null;
+  return query;
+}

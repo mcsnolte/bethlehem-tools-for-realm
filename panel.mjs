@@ -1,5 +1,5 @@
-import {readTable, suggestMapping, mappedNames} from './import.mjs';
-import {parseNames, buildQuery} from './core.mjs';
+import {readTable, suggestMapping, mappedNames, mappedConditions, textFields, suggestFieldMapping} from './import.mjs';
+import {parseNames, buildQuery, buildFieldQuery} from './core.mjs';
 import {openRealmResults} from './bridge.mjs';
 
 const $ = id => document.getElementById(id);
@@ -63,7 +63,9 @@ $('open-results').onclick = async () => {
   controls();
   status('Opening results in your Realm tab…');
   try {
-    const query = buildQuery(sourceNames(), {includePreferredName: $('include-preferred').checked});
+    const query = $('has-header').checked && $('match-mode').value === 'fields'
+      ? buildFieldQuery(fieldImport().groups, {includePreferredName: $('include-preferred').checked})
+      : buildQuery(sourceNames(), {includePreferredName: $('include-preferred').checked});
     const results = await chrome.scripting.executeScript({
       target: {tabId}, func: openRealmResults, args: [query],
     });
@@ -108,6 +110,21 @@ function refreshMapping(reset = false) {
     if (reset || key !== headerKey) {
       headerKey = key;
       const guess = suggestMapping(headers);
+      const fieldGuess = suggestFieldMapping(headers);
+      const container = $('text-fields');
+      container.replaceChildren();
+      for (const [field, label] of Object.entries(textFields)) {
+        const select = document.createElement('select');
+        select.id = 'field-' + field;
+        select.add(new Option('Ignore', '-1'));
+        headers.forEach((header, i) => select.add(new Option(header.trim() || '(blank header)', String(i))));
+        select.value = String(fieldGuess[field]);
+        select.onchange = () => refreshMapping();
+        const caption = document.createElement('label');
+        caption.htmlFor = select.id;
+        caption.textContent = label;
+        container.append(caption, select);
+      }
       for (const field of ['given', 'family', 'full']) {
         const select = $('map-' + field);
         select.replaceChildren(new Option('Choose a column…', '-1'));
@@ -117,6 +134,15 @@ function refreshMapping(reset = false) {
         select.value = String(guess[field]);
       }
       $('name-mode').value = guess.given >= 0 && guess.family >= 0 ? 'split' : guess.full >= 0 ? 'full' : 'split';
+    }
+    const fieldsMode = $('match-mode').value === 'fields';
+    $('text-fields').hidden = !fieldsMode;
+    $('name-mapping').hidden = fieldsMode;
+    $('include-preferred').disabled = busy;
+    if (fieldsMode) {
+      const imported = fieldImport();
+      $('mapping-preview').textContent = imported.groups.length + ' distinct rows. All selected fields must match in each row.';
+      return;
     }
     $('split-fields').hidden = $('name-mode').value === 'full';
     $('full-fields').hidden = $('name-mode').value !== 'full';
@@ -132,7 +158,7 @@ function refreshMapping(reset = false) {
 $('has-header').onchange = () => {
   refreshMapping(true);
 };
-for (const id of ['separator', 'name-mode', 'map-given', 'map-family', 'map-full']) {
+for (const id of ['separator', 'match-mode', 'name-mode', 'map-given', 'map-family', 'map-full']) {
   $(id).onchange = () => {
       refreshMapping(id === 'separator');
   };
@@ -151,3 +177,8 @@ document.querySelector('.file').addEventListener('keydown', event => {
     $('file').click();
   }
 });
+
+function fieldImport() {
+  return mappedConditions($('names').value, Object.fromEntries(
+    Object.keys(textFields).map(field => [field, Number($('field-' + field).value)])), mappingOptions().delimiter);
+}

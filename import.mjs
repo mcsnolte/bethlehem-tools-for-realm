@@ -126,3 +126,69 @@ export function mappedNames(text, {
   }
   return {names: unique, rows: names.length, duplicates: names.length - unique.length};
 }
+
+// Only text attributes whose equality format is supported by Realm's query model.
+export const textFields = {
+  FullName: 'Full name (split first and last)',
+  Email: 'Email', Address: 'Address', AddressLine1: 'Address line 1',
+  AddressLine2: 'Address line 2', AddressCity: 'City', AddressPostalCode: 'ZIP / postal code',
+  AddressRegion: 'Region', PhoneNumber: 'Phone number', FirstName: 'First name',
+  LastName: 'Last name', MiddleName: 'Middle name', PreferredName: 'Preferred name',
+};
+
+export function mappedConditions(text, mapping, delimiter = 'auto') {
+  const [headers, ...rows] = readTable(text, delimiter);
+  if (!rows.length) throw Error('Add at least one data row beneath the headers.');
+  const selected = Object.entries(mapping).filter(([, index]) => index >= 0);
+  if (!selected.length) throw Error('Choose at least one field to match.');
+  const indices = new Set();
+  for (const [field, index] of selected) {
+    if (!Object.hasOwn(textFields, field) || !Number.isInteger(index) || index >= headers.length) {
+      throw Error('Choose a valid field and column.');
+    }
+    if (indices.has(index)) throw Error('Use a different column for each selected field.');
+    indices.add(index);
+  }
+  const groups = rows.map((row, i) => {
+    if (row.length !== headers.length) throw Error(`Data row ${i + 1}: column count does not match the header.`);
+    if (selected.some(([field]) => field === 'FullName') && selected.some(([field]) => ['FirstName', 'LastName', 'PreferredName'].includes(field))) {
+      throw Error('Choose full name or separate name fields, rather than both.');
+    }
+    return selected.flatMap(([Name, index]) => {
+      const value = row[index].trim();
+      if (!value) throw Error(`Data row ${i + 1}: ${textFields[Name]} is blank. Fill it in or ignore that field.`);
+      if (Name === 'FullName') {
+        let names;
+        try { names = parseNames(value); } catch {
+          throw Error(`Data row ${i + 1}: for compound names, use “Surname, Given name” or map separate name columns.`);
+        }
+        if (names.length !== 1) throw Error(`Data row ${i + 1}: use exactly one name per full-name cell.`);
+        return [{Name: 'LastName', value: names[0].family}, {Name: 'FirstName', value: names[0].given, fullName: true}];
+      }
+      return [{Name, value}];
+    });
+  });
+  const unique = [...new Map(groups.map(group => [JSON.stringify(group.map(c => [c.Name, c.value.toLowerCase()])), group])).values()];
+  if (unique.length > 50) throw Error('Use up to 50 distinct rows per query.');
+  return {groups: unique, duplicates: groups.length - unique.length};
+}
+
+export function suggestFieldMapping(headers) {
+  const normalize = value => value.trim().toLowerCase().replace(/[\s_-]+/g, '');
+  const aliases = {
+    FullName: ['name', 'full name'],
+    AddressPostalCode: ['zip', 'zip code', 'postal code', 'ZIP / postal code'],
+    PhoneNumber: ['phone', 'phone number'],
+  };
+  const mapping = Object.fromEntries(Object.entries(textFields).map(([field, label]) => {
+    const names = [field, label, ...(aliases[field] || [])].map(normalize);
+    const matches = headers.flatMap((header, i) => names.includes(normalize(header)) ? [i] : []);
+    // Ambiguous duplicate headers require an explicit selection.
+    return [field, matches.length === 1 ? matches[0] : -1];
+  }));
+  // Full names and separate name fields cannot be used together.
+  if (['FirstName', 'LastName', 'PreferredName'].some(field => mapping[field] >= 0)) {
+    mapping.FullName = -1;
+  }
+  return mapping;
+}

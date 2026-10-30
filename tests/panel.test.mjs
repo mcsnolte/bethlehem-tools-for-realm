@@ -17,6 +17,7 @@ class Element {
   classList = {toggle() {}};
   addEventListener(event, callback) { this.listeners.set(event, callback); }
   replaceChildren(...children) { this.children = children; }
+  append(...children) { this.children.push(...children); }
   add(option) { this.children.push(option); }
 }
 
@@ -37,6 +38,11 @@ async function panel(t, response = async () => [{result: {ok: true}}], search = 
     location: {search},
     document: {
       getElementById: get,
+      createElement: () => {
+        const element = new Element();
+        Object.defineProperty(element, 'id', {set(id) { elements.set(id, element); }});
+        return element;
+      },
       querySelector: () => new Element(),
       querySelectorAll: () => [get('has-header'), get('back-menu')],
     },
@@ -165,3 +171,23 @@ for (const mapped of [false, true]) {
     assert.deepEqual(calls[1].args, [query()]);
   });
 }
+
+test('specific field mapping hands email and city conditions to Realm', async t => {
+  const {get, calls} = await panel(t);
+  get('names').value = 'Email,City\na@example.invalid,Germantown';
+  get('has-header').checked = true;
+  get('has-header').onchange();
+  get('match-mode').value = 'fields';
+  get('match-mode').onchange();
+  assert.equal(get('field-Email').value, '0');
+  assert.equal(get('field-AddressCity').value, '1');
+  get('field-AddressCity').onchange();
+  assert.equal(get('text-fields').hidden, false);
+  get('match-mode').onchange();
+  assert.equal(get('field-Email').value, '0');
+  assert.equal(get('name-mapping').hidden, true);
+  await get('open-results').onclick();
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].args[0].DisplayColumns, ['Email0', 'AddressCity0']);
+  assert.deepEqual(calls[0].args[0].Query[0].map(c => c.Name), ['Email', 'AddressCity']);
+});

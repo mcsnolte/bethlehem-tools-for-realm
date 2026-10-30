@@ -1,13 +1,13 @@
 # Bethlehem Tools for Realm
 
-Chrome extension for building a custom query from a list of names and opening unsaved results in Realm. Runs in Chrome's side panel using the user's existing Bethlehem Realm session. Includes CSV/TSV header mapping; reviewing people, editing, saving, and other actions happen on Realm's results page. Group and volunteer tools are inactive placeholders.
+Chrome extension for building a custom query from names or header-mapped text fields and opening unsaved results in Realm. Runs in Chrome's side panel using the user's existing Bethlehem Realm session. Includes CSV/TSV header mapping; reviewing people, editing, saving, and other actions happen on Realm's results page. Group and volunteer tools are inactive placeholders.
 
 ## Distribution and use
 
 Chrome Web Store submission is complete and approved for **unlisted** distribution. Install using the listing link shared by the publisher.
 
 1. Sign in to Bethlehem Realm and open Custom Query or My Saved Reports.
-2. Click the extension icon and choose **Query from a name list**. Keep the signed-in Realm tab open.
+2. Click the extension icon and choose **Query from a list**. Keep the signed-in Realm tab open.
 3. Paste names or load a CSV, TSV, or text file. For files with headers, check **First row contains column headers** and select the name columns. CSV files default to header mode.
 4. Leave **Also match preferred names** enabled to match first or preferred names, or turn it off to match first names only. Click **Open results in Realm**. The signed-in Realm tab navigates to the unsaved query's results page.
 5. Review the people and use Realm's own controls to edit the query, save it if desired, or perform other actions.
@@ -92,4 +92,8 @@ GitHub Actions runs the JavaScript tests, packaging tests, and a plain build on 
 
 ## Current limits
 
-Bethlehem site only. Header-mapped imports support up to 50 distinct names; plain name lists support up to 50 nonblank lines. Matching uses first name plus surname, with optional preferred-name matching enabled by default, and excludes inactive and deceased profiles. Review same-name matches using Realm's controls. Queries remain name-based, so future profiles can affect results. The native results-page handoff has been live-tested in Realm. See PRIVACY.md for data handling. The existing store listing is approved for unlisted distribution; release updates follow the checklist above.
+Bethlehem site only. Header-mapped imports support up to 50 distinct names; plain name lists support up to 50 nonblank lines. Matching uses first name plus surname, with optional preferred-name matching enabled by default, and excludes inactive and deceased profiles. Review same-name matches using Realm's controls. Queries use field conditions, so future profile changes can affect results. The native results-page handoff has been live-tested in Realm. See PRIVACY.md for data handling. The existing store listing is approved for unlisted distribution; release updates follow the checklist above.
+
+### Query by text fields
+
+With a CSV or TSV header row, choose **Specific fields (exact match)** under **Match using**, then map the columns to email, address, city, ZIP/postal code, phone, or name fields. Unmapped columns are ignored. Every selected field must be populated and match within a row; any row may match. Up to 50 distinct rows are supported. Matching headers are selected automatically (including Name, Email, City, ZIP, and Phone); selections remain editable. Ambiguous duplicate headers require manual selection. This mode uses literal equality and does not normalize phone/address formats. Map a forms export’s Name column to **Full name (split first and last)** to use the existing name parser alongside other fields such as Email. The preferred-name checkbox also applies to mapped full names; each alternative retains all other selected conditions. Compound names require “Surname, Given name” or separate name columns. State/country choices, dates, numeric comparisons, and specialized filters are not yet supported. The email/city payload structure was verified against supplied Realm captures; the new interface still needs a live Realm check.
